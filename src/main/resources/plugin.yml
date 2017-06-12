@@ -1,3 +1,5 @@
 name: LastMobStanding
 main: pe.chalk.bukkit.LastMobStanding
-version: 1.0
+version: 1.0-SNAPSHOT
+
+depend: [iDisguise]
