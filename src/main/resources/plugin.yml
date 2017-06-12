@@ -3,3 +3,11 @@ main: pe.chalk.bukkit.LastMobStanding
 version: 1.0-SNAPSHOT
 
 depend: [iDisguise]
+commands:
+  lms:
+    description: Last Mob Standing
+    aliases: [lastmob, lastmobstanding]
+    usage: /world [start | etc]
+
+  lms start:
+    description: Start a game with current online players.
