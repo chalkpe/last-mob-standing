@@ -3,11 +3,15 @@ main: pe.chalk.bukkit.LastMobStanding
 version: 1.0-SNAPSHOT
 
 depend: [iDisguise]
+
+permissions:
+  lastmobstanding.use:
+    description: Allows you to control game
+    default: op
+
 commands:
   lms:
     description: Last Mob Standing
     aliases: [lastmob, lastmobstanding]
-    usage: /world [start | etc]
-
-  lms start:
-    description: Start a game with current online players.
+    permission: lastmobstanding.use
+    usage: "Usage: /lms [start | stop | status]"

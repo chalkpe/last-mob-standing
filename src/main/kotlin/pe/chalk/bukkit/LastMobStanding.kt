@@ -2,7 +2,6 @@ package pe.chalk.bukkit
 
 import de.robingrether.idisguise.api.DisguiseAPI
 import de.robingrether.idisguise.disguise.Disguise
-import de.robingrether.idisguise.disguise.DisguiseType
 import org.bukkit.*
 import org.bukkit.attribute.Attribute
 import org.bukkit.command.Command
@@ -11,17 +10,24 @@ import org.bukkit.entity.EntityType
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
+import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.PlayerDeathEvent
+import org.bukkit.event.player.PlayerJoinEvent
+import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.ItemStack
 import org.bukkit.plugin.java.JavaPlugin
 import java.util.*
+import kotlin.concurrent.schedule
 
 /**
  * @author ChalkPE <chalk@chalk.pe>
  * @since 2017-06-12 08:43
  */
 class LastMobStanding : JavaPlugin(), Listener {
-    val entities = setOf(EntityType.DROPPED_ITEM, EntityType.EXPERIENCE_ORB)
+    val entities = setOf(EntityType.PLAYER, EntityType.PIG)
+
+    val primaryColor = ChatColor.DARK_AQUA.toString()
+    val accentColor = ChatColor.AQUA.toString()
 
     lateinit var prefix: String
     lateinit var api: DisguiseAPI
@@ -31,34 +37,29 @@ class LastMobStanding : JavaPlugin(), Listener {
     var livingPlayers = mutableSetOf<Player>()
 
     override fun onEnable() {
-        prefix = "${ChatColor.AQUA}[$name]"
+        prefix = "$primaryColor[$name]"
         server.pluginManager.registerEvents(this, this)
         api = Bukkit.getServicesManager().getRegistration(DisguiseAPI::class.java).provider
     }
 
     override fun onCommand(sender: CommandSender?, command: Command?, label: String?, args: Array<out String>?): Boolean {
-        if (sender == null) return true
-        if (command?.name != "lms") return true
+        if (args == null || args.isEmpty()) return false
 
-        if (sender !is Player) {
-            sender.sendMessage("$prefix You are not a player")
-            return true
-        }
-
-        if (!sender.isOp) {
-            sender.sendMessage("$prefix Permission denied")
-            return true
-        }
-
-        when (args?.get(0)) {
+        when (args[0]) {
             "start" -> start()
-            "end" -> end()
+            "stop", "end" -> stop()
+            else -> return false
         }
 
         return true
     }
 
     fun start() {
+        if (playing) {
+            server.broadcastMessage("$prefix Already playing!")
+            return
+        }
+
         val list = server.onlinePlayers.toTypedArray()
         if (list.size <= 1) {
             server.broadcastMessage("$prefix Too few people to start!")
@@ -75,50 +76,93 @@ class LastMobStanding : JavaPlugin(), Listener {
             it.inventory.addItem(ItemStack(if (it == attacker) Material.DIAMOND_SWORD else Material.WOOD_SWORD))
 
             it.foodLevel = 20
+            it.allowFlight = false
             it.gameMode = GameMode.ADVENTURE
             it.health = it.getAttribute(Attribute.GENERIC_MAX_HEALTH).value
 
-            it.sendMessage("$prefix " + (if (it == attacker) "Kill everyone!" else "Oh, pig!"))
+            val message = if (it == attacker) "You are attacker. Kill everyone!" else "Oh, pig!"
+            it.sendMessage("$prefix $message")
         }
 
-        playing = true
-
         attacker.world.time = 6000
+        attacker.world.setGameRuleValue("doMobLoot", "false")
+        attacker.world.setGameRuleValue("doMobSpawning", "false")
+        attacker.world.setGameRuleValue("doDaylightCycle", "false")
         attacker.world.setGameRuleValue("keepInventory", "true")
-        attacker.world.entities.filter { entities.contains(it.type) }.forEach { it.remove() }
+        attacker.world.setGameRuleValue("naturalRegeneration", "false")
+        attacker.world.entities.filter { !entities.contains(it.type) }.forEach { it.remove() }
 
+        playing = true
         livingPlayers.clear()
         livingPlayers.addAll(list)
 
         server.broadcastMessage("$prefix Game started!")
-        server.broadcastMessage("$prefix Attacker is now ${attacker.displayName}")
+        server.broadcastMessage("$prefix Attacker is $accentColor${attacker.displayName}")
     }
 
-    fun end() {
-        playing = false
-        server.broadcastMessage("$prefix Game ended!")
+    fun stop() {
+        if (!playing) {
+            server.broadcastMessage("$prefix Not started!")
+            return
+        }
 
         server.onlinePlayers.forEach {
+            api.undisguise(it)
+
             it.inventory.clear()
-            it.teleport(it.world.spawnLocation)
+            it.allowFlight = false
         }
+
+        playing = false
+        server.broadcastMessage("$prefix Game ended!")
+    }
+
+    @EventHandler
+    fun onPlayerDamageByPlayer(event: EntityDamageByEntityEvent) {
+        if (!playing) return
+        if (event.entity !is Player || event.damager !is Player) return
+
+        val victim = event.entity as Player
+        val damager = event.damager as Player
+
+        if (!livingPlayers.contains(damager) || !livingPlayers.contains(victim)) event.isCancelled = true
     }
 
     @EventHandler
     fun onPlayerDeath(event: PlayerDeathEvent) {
         if (!playing) return
 
-        if (event.entity == attacker) {
-            server.broadcastMessage("$prefix Attacker ${attacker.displayName} dead! Pigs won!")
-            return end()
-        }
+        val attackerName = "$accentColor${attacker.displayName}$primaryColor"
+        event.deathMessage = "$prefix " + event.deathMessage.replace(attacker.displayName, attackerName)
+
+        event.entity.inventory.clear()
+        event.entity.allowFlight = true
+        event.entity.isFlying = true
 
         livingPlayers.remove(event.entity)
-        server.broadcastMessage("$prefix Now ${livingPlayers.filter { it != attacker }.size} pigs living!")
+        api.disguise(event.entity, Disguise.fromString("bat"))
+
+        if (event.entity == attacker) {
+            server.broadcastMessage("$prefix $attackerName dead. Pigs win!")
+            return stop()
+        }
+
+        val livingPigCount = livingPlayers.filter { it != attacker }.size
+        if (livingPigCount > 0) server.broadcastMessage("$prefix Now $livingPigCount pigs left!")
 
         if (livingPlayers.all { it == attacker }) {
-            server.broadcastMessage("$prefix All pigs dead! Attacker ${attacker.displayName} won!")
-            return end()
+            server.broadcastMessage("$prefix All pigs dead. $attackerName win!")
+            return stop()
         }
+    }
+
+    @EventHandler
+    fun onPlayerJoin(event: PlayerJoinEvent) {
+        api.undisguise(event.player)
+    }
+
+    @EventHandler
+    fun onPlayerQuit(event: PlayerQuitEvent) {
+        api.undisguise(event.player)
     }
 }
