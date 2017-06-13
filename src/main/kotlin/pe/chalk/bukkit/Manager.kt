@@ -3,7 +3,6 @@ package pe.chalk.bukkit
 import de.robingrether.idisguise.api.DisguiseAPI
 import de.robingrether.idisguise.disguise.Disguise
 import org.bukkit.GameMode
-import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.attribute.Attribute
@@ -11,10 +10,8 @@ import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityDamageByEntityEvent
-import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerQuitEvent
-import org.bukkit.event.player.PlayerTeleportEvent
 import org.bukkit.inventory.ItemStack
 import org.bukkit.scheduler.BukkitRunnable
 import org.bukkit.util.Vector
@@ -40,7 +37,7 @@ class Manager(val api: DisguiseAPI) : Listener {
 
     fun init(world: World) {
         gameRules.forEach { k, v -> world.setGameRuleValue(k, v) }
-        val spawnLocation = world.spawnLocation.add(Vector(0, 3, 0))
+        val spawnLocation = world.spawnLocation.add(Vector(0, 2, 0))
 
         world.players.forEach {
             api.undisguise(it)
@@ -71,15 +68,29 @@ class Manager(val api: DisguiseAPI) : Listener {
         if (livingPlayers.size <= 1) return plugin.broadcastMessage("We need at least 2 people to start the game.")
 
         attacker = livingPlayers[Random().nextInt(livingPlayers.size)]
+
+        val pig = Disguise.fromString("pig")
+        pig.visibility = Disguise.Visibility.ONLY_LIST
+        pig.setVisibilityParameter(attacker.name.toLowerCase(Locale.ENGLISH))
+
+        val zombie = Disguise.fromString("zombie")
+        zombie.visibility = Disguise.Visibility.NOT_LIST
+        zombie.setVisibilityParameter(attacker.name.toLowerCase(Locale.ENGLISH))
+
         livingPlayers.forEach {
-            val item = if (it == attacker) Material.DIAMOND_SWORD else Material.WOOD_SWORD
             val message = if (it == attacker) "You are attacker. Kill everyone!" else "Oh, pig!"
 
-            it.inventory.addItem(ItemStack(item))
+            if (it == attacker) {
+                it.inventory.addItem(ItemStack(Material.DIAMOND_SWORD))
+                it.inventory.chestplate = ItemStack(Material.GOLD_CHESTPLATE)
+                it.inventory.boots = ItemStack(Material.GOLD_BOOTS)
+            } else {
+                it.inventory.addItem(ItemStack(Material.WOOD_SWORD))
+            }
+
             plugin.broadcastMessage(message, it)
 
-            if (it == attacker) api.undisguise(it)
-            else api.disguise(it, Disguise.fromString("pig"))
+            api.disguise(it, if (it == attacker) zombie else pig)
         }
 
         plugin.broadcastMessage("Game started!")
@@ -89,7 +100,7 @@ class Manager(val api: DisguiseAPI) : Listener {
     fun stopGame(sender: Player, delay: Long = -1) {
         if (delay > 0) {
             object: BukkitRunnable() {
-                override fun run() = plugin.manager.stopGame(sender)
+                override fun run() = this@Manager.stopGame(sender)
             }.runTaskLater(plugin, delay)
 
             return
