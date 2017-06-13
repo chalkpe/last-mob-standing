@@ -17,7 +17,6 @@ import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.ItemStack
 import org.bukkit.plugin.java.JavaPlugin
 import java.util.*
-import kotlin.concurrent.schedule
 
 /**
  * @author ChalkPE <chalk@chalk.pe>
