@@ -142,6 +142,9 @@ class GameManager(val api: DisguiseAPI) : Listener {
 
         // others can't attack dead players, dead players can't attack others
         if (!livingPlayers.contains(victim) || !livingPlayers.contains(damager)) event.isCancelled = true
+
+        // pigs cannot attack other pigs
+        else if (victim != attacker && damager != attacker) event.isCancelled = true
     }
 
     fun onPlayerDeath(event: PlayerDeathEvent) {
