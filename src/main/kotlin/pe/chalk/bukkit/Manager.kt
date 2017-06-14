@@ -16,8 +16,6 @@ import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Vector
-import pe.chalk.bukkit.task.StopTask
-import pe.chalk.bukkit.task.TimerTask
 import java.util.*
 
 /**
@@ -34,9 +32,6 @@ class Manager(val api: DisguiseAPI) : Listener {
             "naturalRegeneration" to "false"
     )
 
-    val pig: Disguise = Disguise.fromString("pig")
-    val zombie: Disguise = Disguise.fromString("zombie")
-
     var playing = false
     var gameTime: Long = 0
 
@@ -44,20 +39,19 @@ class Manager(val api: DisguiseAPI) : Listener {
     var livingPlayers = mutableListOf<Player>()
 
     init {
-        pig.visibility = Disguise.Visibility.ONLY_LIST
-        pig.setVisibilityParameter(attacker.name.toLowerCase(Locale.ENGLISH))
-
-        zombie.visibility = Disguise.Visibility.NOT_LIST
-        zombie.setVisibilityParameter(attacker.name.toLowerCase(Locale.ENGLISH))
-
-        TimerTask(this).runTaskTimer(plugin, 20, 20)
+        plugin.server.scheduler.runTaskTimer(plugin, {
+            if (++gameTime < 0) plugin.broadcastMessage("`${Math.abs(gameTime)}' seconds left!")
+        }, 20, 20)
     }
 
     fun init(world: World, teleport: Boolean = true) {
         gameRules.forEach { k, v -> world.setGameRuleValue(k, v) }
-        val spawnLocation = world.spawnLocation.add(Vector(0, 2, 0))
+        val spawnLocation = world.spawnLocation.add(Vector(0, 1, 0)) // 1 block higher
 
-        world.players.forEach {
+        gameTime = -20 // seconds
+        livingPlayers = world.players.toMutableList()
+
+        livingPlayers.forEach {
             api.undisguise(it)
 
             it.gameMode = GameMode.ADVENTURE
@@ -70,9 +64,6 @@ class Manager(val api: DisguiseAPI) : Listener {
 
             if (teleport) it.teleport(spawnLocation)
         }
-
-        gameTime = -20
-        livingPlayers = world.players.toMutableList()
     }
 
     fun destroy() {
@@ -87,6 +78,16 @@ class Manager(val api: DisguiseAPI) : Listener {
         if (livingPlayers.size <= 1) return plugin.log("We need at least 2 people to start the game.", sender)
 
         attacker = livingPlayers[Random().nextInt(livingPlayers.size)]
+        val attackerName = attacker.name.toLowerCase(Locale.ENGLISH)
+
+        val pig: Disguise = Disguise.fromString("pig")
+        pig.visibility = Disguise.Visibility.ONLY_LIST
+        pig.setVisibilityParameter(attackerName)
+
+        val zombie: Disguise = Disguise.fromString("zombie")
+        zombie.visibility = Disguise.Visibility.NOT_LIST
+        zombie.setVisibilityParameter(attackerName)
+
         livingPlayers.forEach {
             val dis = if (it == attacker) zombie else pig
             val weapon = if (it == attacker) Material.DIAMOND_SWORD else Material.WOOD_SWORD
@@ -163,7 +164,7 @@ class Manager(val api: DisguiseAPI) : Listener {
         val attackerWin = livingPlayers.all { it == attacker }
 
         if (pigsWin || attackerWin) {
-            StopTask(this, attacker).runTaskLater(plugin, 60)
+            plugin.server.scheduler.runTaskLater(plugin, { stopGame(attacker) }, 60)
             plugin.warn(if (pigsWin) "`${attacker.displayName}' dead. Pigs win!" else "All pigs dead. `${attacker.displayName}' win!")
         }
 

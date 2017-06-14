@@ -12,19 +12,13 @@ import org.bukkit.plugin.java.JavaPlugin
  * @since 2017-06-12 08:43
  */
 class LastMobStanding : JavaPlugin() {
-    lateinit var api: DisguiseAPI
     lateinit var manager: Manager
 
-    companion object {
-        lateinit var instance: LastMobStanding
-    }
+    init { instance = this }
+    companion object { lateinit var instance: LastMobStanding }
 
     override fun onEnable() {
-        instance = this
-
-        api = Bukkit.getServicesManager().getRegistration(DisguiseAPI::class.java).provider
-        manager = Manager(api)
-
+        manager = Manager(Bukkit.getServicesManager().getRegistration(DisguiseAPI::class.java).provider)
         server.pluginManager.registerEvents(manager, this)
     }
 
@@ -41,16 +35,11 @@ class LastMobStanding : JavaPlugin() {
             "stop" -> manager.stopGame(sender)
             else -> return false
         }
-
         return true
     }
 
-    fun broadcastMessage(message: String,
-                         target: Player? = null,
-                         color: ChatColor = ChatColor.DARK_AQUA,
-                         accent: ChatColor = ChatColor.AQUA) {
-
-        val msg = "'[$name] $message"
+    fun broadcastMessage(message: String, target: Player? = null, color: ChatColor = ChatColor.DARK_AQUA, accent: ChatColor = ChatColor.AQUA) {
+        val msg = "$color[$name] $message"
                 .replace("'", ChatColor.RESET.toString() + color.toString())
                 .replace("`", ChatColor.BOLD.toString() + accent.toString())
 
