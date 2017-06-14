@@ -22,7 +22,7 @@ import java.util.*
  * @author ChalkPE <chalk@chalk.pe>
  * @since 2017-06-13 20:44
  */
-class Manager(val api: DisguiseAPI) : Listener {
+class GameManager(val api: DisguiseAPI) : Listener {
     val plugin = LastMobStanding.Companion.instance
     val gameRules = mapOf(
             "doMobLoot" to "false",

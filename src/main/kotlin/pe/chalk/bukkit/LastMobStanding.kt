@@ -5,6 +5,7 @@ import org.bukkit.*
 import org.bukkit.command.Command
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
+import org.bukkit.plugin.ServicePriority
 import org.bukkit.plugin.java.JavaPlugin
 
 /**
@@ -12,14 +13,16 @@ import org.bukkit.plugin.java.JavaPlugin
  * @since 2017-06-12 08:43
  */
 class LastMobStanding : JavaPlugin() {
-    lateinit var manager: Manager
+    lateinit var manager: GameManager
 
     init { instance = this }
     companion object { lateinit var instance: LastMobStanding }
 
     override fun onEnable() {
-        manager = Manager(Bukkit.getServicesManager().getRegistration(DisguiseAPI::class.java).provider)
+        manager = GameManager(server.servicesManager.getRegistration(DisguiseAPI::class.java).provider)
+
         server.pluginManager.registerEvents(manager, this)
+        server.servicesManager.register(GameManager::class.java, manager, this, ServicePriority.Normal)
     }
 
     override fun onDisable() {
