@@ -10,11 +10,14 @@ import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityDamageByEntityEvent
+import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerJoinEvent
+import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.ItemStack
-import org.bukkit.scheduler.BukkitRunnable
 import org.bukkit.util.Vector
+import pe.chalk.bukkit.task.StopTask
+import pe.chalk.bukkit.task.TimerTask
 import java.util.*
 
 /**
@@ -31,11 +34,26 @@ class Manager(val api: DisguiseAPI) : Listener {
             "naturalRegeneration" to "false"
     )
 
-    var playing = false
-    lateinit var attacker: Player
-    lateinit var livingPlayers: MutableList<Player>
+    val pig: Disguise = Disguise.fromString("pig")
+    val zombie: Disguise = Disguise.fromString("zombie")
 
-    fun init(world: World) {
+    var playing = false
+    var gameTime: Long = 0
+
+    lateinit var attacker: Player
+    var livingPlayers = mutableListOf<Player>()
+
+    init {
+        pig.visibility = Disguise.Visibility.ONLY_LIST
+        pig.setVisibilityParameter(attacker.name.toLowerCase(Locale.ENGLISH))
+
+        zombie.visibility = Disguise.Visibility.NOT_LIST
+        zombie.setVisibilityParameter(attacker.name.toLowerCase(Locale.ENGLISH))
+
+        TimerTask(this).runTaskTimer(plugin, 20, 20)
+    }
+
+    fun init(world: World, teleport: Boolean = true) {
         gameRules.forEach { k, v -> world.setGameRuleValue(k, v) }
         val spawnLocation = world.spawnLocation.add(Vector(0, 2, 0))
 
@@ -50,9 +68,10 @@ class Manager(val api: DisguiseAPI) : Listener {
             it.inventory.addItem(ItemStack(Material.APPLE, 4))
             it.health = it.getAttribute(Attribute.GENERIC_MAX_HEALTH).value
 
-            it.teleport(spawnLocation)
+            if (teleport) it.teleport(spawnLocation)
         }
 
+        gameTime = -20
         livingPlayers = world.players.toMutableList()
     }
 
@@ -61,55 +80,36 @@ class Manager(val api: DisguiseAPI) : Listener {
     }
 
     fun startGame(sender: Player) {
-        if (playing) return plugin.broadcastMessage("The game already started.", sender)
+        if (playing) return plugin.log("The game already started.", sender)
         playing = true
 
         init(sender.world)
-        if (livingPlayers.size <= 1) return plugin.broadcastMessage("We need at least 2 people to start the game.")
+        if (livingPlayers.size <= 1) return plugin.log("We need at least 2 people to start the game.", sender)
 
         attacker = livingPlayers[Random().nextInt(livingPlayers.size)]
-
-        val pig = Disguise.fromString("pig")
-        pig.visibility = Disguise.Visibility.ONLY_LIST
-        pig.setVisibilityParameter(attacker.name.toLowerCase(Locale.ENGLISH))
-
-        val zombie = Disguise.fromString("zombie")
-        zombie.visibility = Disguise.Visibility.NOT_LIST
-        zombie.setVisibilityParameter(attacker.name.toLowerCase(Locale.ENGLISH))
-
         livingPlayers.forEach {
-            val message = if (it == attacker) "You are attacker. Kill everyone!" else "Oh, pig!"
+            val dis = if (it == attacker) zombie else pig
+            val weapon = if (it == attacker) Material.DIAMOND_SWORD else Material.WOOD_SWORD
+            val message = if (it == attacker) "`You are attacker.' Kill everyone!" else "`Oh, pig.' Kill an attacker!"
 
-            if (it == attacker) {
-                it.inventory.addItem(ItemStack(Material.DIAMOND_SWORD))
-                it.inventory.chestplate = ItemStack(Material.GOLD_CHESTPLATE)
-                it.inventory.boots = ItemStack(Material.GOLD_BOOTS)
-            } else {
-                it.inventory.addItem(ItemStack(Material.WOOD_SWORD))
-            }
-
+            api.disguise(it, dis)
+            it.inventory.addItem(ItemStack(weapon))
             plugin.broadcastMessage(message, it)
-
-            api.disguise(it, if (it == attacker) zombie else pig)
         }
 
+        attacker.location.pitch = -90f // look upward
+        attacker.inventory.chestplate = ItemStack(Material.GOLD_CHESTPLATE)
+        attacker.inventory.boots = ItemStack(Material.GOLD_BOOTS)
+
+        plugin.broadcastMessage("Attacker is `${attacker.displayName}'")
         plugin.broadcastMessage("Game started!")
-        plugin.broadcastMessage("Attacker is ${attacker.displayName}")
     }
 
-    fun stopGame(sender: Player, delay: Long = -1) {
-        if (delay > 0) {
-            object: BukkitRunnable() {
-                override fun run() = this@Manager.stopGame(sender)
-            }.runTaskLater(plugin, delay)
-
-            return
-        }
-
-        if (!playing) return plugin.broadcastMessage("There is no game to stop.", sender)
+    fun stopGame(sender: Player) {
+        if (!playing) return plugin.log("There is no game to stop.", sender)
         playing = false
 
-        init(sender.world)
+        init(sender.world, false)
         plugin.broadcastMessage("Game ended!")
     }
 
@@ -124,6 +124,14 @@ class Manager(val api: DisguiseAPI) : Listener {
     }
 
     @EventHandler
+    fun onPlayerMove(event: PlayerMoveEvent) {
+        if (!playing) return
+
+        // attacker cannot move before game starts
+        if (event.player == attacker && gameTime < 0) event.isCancelled = true
+    }
+
+    @EventHandler
     fun onPlayerDamageByPlayer(event: EntityDamageByEntityEvent) {
         if (!playing) return
         if (event.entity !is Player || event.damager !is Player) return
@@ -131,27 +139,19 @@ class Manager(val api: DisguiseAPI) : Listener {
         val victim = event.entity as Player
         val damager = event.damager as Player
 
-        if (!livingPlayers.contains(victim) || !livingPlayers.contains(damager)) {
-            event.isCancelled = true
-            return // others can't attack dead players, dead players can't attack others
-        }
-
-        if (victim.health - event.damage < 1) {
-            event.isCancelled = true
-            killPlayer(victim, damager)
-        }
+        // others can't attack dead players, dead players can't attack others
+        if (!livingPlayers.contains(victim) || !livingPlayers.contains(damager)) event.isCancelled = true
     }
 
-    fun killPlayer(victim: Player, killer: Player) {
+    fun onPlayerDeath(event: PlayerDeathEvent) {
+        if (!playing) return
+
+        val victim = event.entity
+        if (livingPlayers.contains(victim)) return
         livingPlayers.remove(victim)
 
-        plugin.broadcastMessage("You are dead!", victim)
-        plugin.broadcastMessage("${victim.displayName} was killed by ${killer.displayName}")
-
-        if (victim == attacker) {
-            plugin.broadcastMessage("${attacker.displayName} dead. Pigs win!")
-            return stopGame(attacker, 20 * 3)
-        }
+        plugin.warn(event.deathMessage)
+        event.deathMessage = null
 
         victim.inventory.clear()
         victim.allowFlight = true
@@ -159,12 +159,15 @@ class Manager(val api: DisguiseAPI) : Listener {
 
         api.disguise(victim, Disguise.fromString("bat"))
 
-        val livingPigCount = livingPlayers.filter { it != attacker }.size
-        if (livingPigCount > 0) plugin.broadcastMessage("Now $livingPigCount pigs left!")
+        val pigsWin = victim == attacker
+        val attackerWin = livingPlayers.all { it == attacker }
 
-        if (livingPlayers.all { it == attacker }) {
-            plugin.broadcastMessage("All pigs dead. ${attacker.displayName} win!")
-            return stopGame(attacker, 20 * 3)
+        if (pigsWin || attackerWin) {
+            StopTask(this, attacker).runTaskLater(plugin, 60)
+            plugin.warn(if (pigsWin) "`${attacker.displayName}' dead. Pigs win!" else "All pigs dead. `${attacker.displayName}' win!")
         }
+
+        val livingPigCount = livingPlayers.filter { it != attacker }.size
+        if (livingPigCount > 0) plugin.warn("Now `$livingPigCount' pigs left!")
     }
 }

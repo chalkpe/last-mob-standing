@@ -14,7 +14,6 @@ import org.bukkit.plugin.java.JavaPlugin
 class LastMobStanding : JavaPlugin() {
     lateinit var api: DisguiseAPI
     lateinit var manager: Manager
-    lateinit var prefix: String
 
     companion object {
         lateinit var instance: LastMobStanding
@@ -22,7 +21,6 @@ class LastMobStanding : JavaPlugin() {
 
     override fun onEnable() {
         instance = this
-        prefix = "${ChatColor.DARK_AQUA}[$name]"
 
         api = Bukkit.getServicesManager().getRegistration(DisguiseAPI::class.java).provider
         manager = Manager(api)
@@ -47,8 +45,23 @@ class LastMobStanding : JavaPlugin() {
         return true
     }
 
-    fun broadcastMessage(message: String, target: Player? = null) {
-        val msg = "$prefix $message"
+    fun broadcastMessage(message: String,
+                         target: Player? = null,
+                         color: ChatColor = ChatColor.DARK_AQUA,
+                         accent: ChatColor = ChatColor.AQUA) {
+
+        val msg = "'[$name] $message"
+                .replace("'", ChatColor.RESET.toString() + color.toString())
+                .replace("`", ChatColor.BOLD.toString() + accent.toString())
+
         if (target != null) target.sendMessage(msg) else server.broadcastMessage(msg)
+    }
+
+    fun log(message: String, target: Player) {
+        broadcastMessage(message, target, color = ChatColor.GRAY)
+    }
+
+    fun warn(message: String, target: Player? = null) {
+        broadcastMessage(message, target, color = ChatColor.DARK_RED, accent = ChatColor.RED)
     }
 }
